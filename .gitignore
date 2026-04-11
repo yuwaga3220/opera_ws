@@ -1,0 +1,35 @@
+# ROS 2 / colcon
+build/
+install/
+log/
+.colcon/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE / editor (共有したい場合は該当行を削除)
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 一時・キャッシュ
+.cache/
+*.log
