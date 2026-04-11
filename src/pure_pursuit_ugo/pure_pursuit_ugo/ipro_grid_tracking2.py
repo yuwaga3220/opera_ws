@@ -1,4 +1,3 @@
-import os
 import math
 import threading
 import time
@@ -10,15 +9,7 @@ from sensor_msgs.msg import JointState
 import requests
 from requests.auth import HTTPDigestAuth
 
-
-# ==== 通信設定 ====
-# 環境変数優先（安全）
-IP_ADDRESS = '192.168.11.200'
-USER = 'yuwaga3220'
-PASS = 'Nagaisawapro1'
-
-CTRL_URL = f"http://{IP_ADDRESS}/cgi-bin/camctrl"
-DIRECT_URL = f"http://{IP_ADDRESS}/cgi-bin/directctrl"
+from pure_pursuit_ugo import ipro_env
 
 
 class IproGridTracking2(Node):
@@ -109,8 +100,20 @@ class IproGridTracking2(Node):
         self.DIRECT_ZOOM_PARAM = "zoom"
 
         # ========= 通信 =========
+        ipro_env.load_ipro_dotenv()
+        ip = ipro_env.camera_ip()
+        user = ipro_env.camera_user()
+        pw = ipro_env.camera_password()
+        if not user or not pw:
+            self.get_logger().error(
+                ".env に IPRO_CAMERA_USER / IPRO_CAMERA_PASSWORD を設定してください（.env.example 参照）。"
+            )
+            raise RuntimeError("Missing IPRO_CAMERA_USER or IPRO_CAMERA_PASSWORD")
+        self.ctrl_url = f"http://{ip}/cgi-bin/camctrl"
+        self.direct_url = f"http://{ip}/cgi-bin/directctrl"
+
         self.session = requests.Session()
-        self.session.auth = HTTPDigestAuth(USER, PASS)
+        self.session.auth = HTTPDigestAuth(user, pw)
 
         # ========= 状態管理 =========
         self.last_preset_change_time = 0.0
@@ -130,8 +133,8 @@ class IproGridTracking2(Node):
         self._last_zoom_update_time = time.time()
         
         # ========= 通信セッション =========
-        self.auth = HTTPDigestAuth(USER, PASS)
-        self.session.get(CTRL_URL, auth=self.auth, timeout=3.0)
+        self.auth = HTTPDigestAuth(user, pw)
+        self.session.get(self.ctrl_url, auth=self.auth, timeout=3.0)
 
 
         self.sub = self.create_subscription(JointState, "/zx120/joint_states", self.callback, 10)
@@ -348,7 +351,7 @@ class IproGridTracking2(Node):
 
         try:
             # 1) プリセット呼び出し
-            self.session.get(f"{CTRL_URL}?preset={pid}", auth=self.auth, timeout=2.0)
+            self.session.get(f"{self.ctrl_url}?preset={pid}", auth=self.auth, timeout=2.0)
 
             # パンチルト＋ズームの移動を少し待つ（必要なら調整）
             time.sleep(1.0)
@@ -360,7 +363,7 @@ class IproGridTracking2(Node):
                 time.sleep(0.25)
                 self._send_direct(pan=0, tilt=0, zoom=None, timeout=2.0)
 
-            url = f"{CTRL_URL}?preset={pid}"
+            url = f"{self.ctrl_url}?preset={pid}"
             self.get_logger().info(f"[HTTP] GET {url}")
             resp = self.session.get(url, auth=self.auth, timeout=2.0)
             self.get_logger().info(f"[HTTP] status={resp.status_code} body={resp.text[:80]!r}")
@@ -438,10 +441,10 @@ class IproGridTracking2(Node):
             params[self.DIRECT_ZOOM_PARAM] = int(zoom)
 
         # ★ 送信前に表示
-        req = requests.Request("GET", DIRECT_URL, params=params).prepare()
+        req = requests.Request("GET", self.direct_url, params=params).prepare()
         self.get_logger().info(f"[HTTP] GET {req.url}")
 
-        resp = self.session.get(DIRECT_URL, params=params, auth=self.auth, timeout=(2.0, timeout))
+        resp = self.session.get(self.direct_url, params=params, auth=self.auth, timeout=(2.0, timeout))
         self.get_logger().info(f"[HTTP] status={resp.status_code} body={resp.text[:80]!r}")
 
 

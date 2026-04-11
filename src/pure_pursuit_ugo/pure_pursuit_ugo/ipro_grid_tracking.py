@@ -8,16 +8,24 @@ from requests.auth import HTTPDigestAuth
 import threading
 import time
 
-# ==== 通信設定 ====
-IP_ADDRESS = '192.168.11.200'
-USER = 'yuwaga3220'
-PASS = 'Nagaisawapro1'
-CTRL_URL = f"http://{IP_ADDRESS}/cgi-bin/camctrl"
-DIRECT_URL = f"http://{IP_ADDRESS}/cgi-bin/directctrl"
+from pure_pursuit_ugo import ipro_env
+
 
 class IproOneShotTiltOnly(Node):
     def __init__(self):
         super().__init__('ipro_oneshot_tilt_only')
+
+        ipro_env.load_ipro_dotenv()
+        ip = ipro_env.camera_ip()
+        user = ipro_env.camera_user()
+        pw = ipro_env.camera_password()
+        if not user or not pw:
+            self.get_logger().error(
+                ".env に IPRO_CAMERA_USER / IPRO_CAMERA_PASSWORD を設定してください（.env.example 参照）。"
+            )
+            raise RuntimeError("Missing IPRO_CAMERA_USER or IPRO_CAMERA_PASSWORD")
+        self.ctrl_url = f"http://{ip}/cgi-bin/camctrl"
+        self.direct_url = f"http://{ip}/cgi-bin/directctrl"
 
         # 建機パラメータ
         self.declare_parameter('boom_length', 4.802)
@@ -44,7 +52,7 @@ class IproOneShotTiltOnly(Node):
 
         # 通信設定
         self.session = requests.Session()
-        self.session.auth = HTTPDigestAuth(USER, PASS)
+        self.session.auth = HTTPDigestAuth(user, pw)
         
         # 状態管理
         self.last_preset_change_time = 0
@@ -132,7 +140,7 @@ class IproOneShotTiltOnly(Node):
     def execute_sequence(self, pid, diff):
         try:
             # 1. プリセット呼び出し
-            self.session.get(f"{CTRL_URL}?preset={pid}", timeout=0.5)
+            self.session.get(f"{self.ctrl_url}?preset={pid}", timeout=0.5)
             
             # ズーム移動が無い分、待機時間は短くて済むはずですが
             # 念のためパンチルト移動完了まで待つ
@@ -141,11 +149,11 @@ class IproOneShotTiltOnly(Node):
             # 2. 微調整 (One Shot)
             cmd_tilt = self.calc_step(diff)
             if cmd_tilt != 0:
-                self.session.get(f"{DIRECT_URL}?pan=0&tilt={cmd_tilt}", timeout=0.3)
+                self.session.get(f"{self.direct_url}?pan=0&tilt={cmd_tilt}", timeout=0.3)
                 time.sleep(0.3) 
                 
                 # 3. 停止
-                self.session.get(f"{DIRECT_URL}?pan=0&tilt=0", timeout=0.3)
+                self.session.get(f"{self.direct_url}?pan=0&tilt=0", timeout=0.3)
 
         except Exception as e:
             self.get_logger().error(f"Err: {e}")

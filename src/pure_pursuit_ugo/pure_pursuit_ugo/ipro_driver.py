@@ -8,20 +8,29 @@ import requests
 import threading
 from requests.auth import HTTPDigestAuth
 
-# ==== 設定 (ご提示いただいた内容) ====
-IP_ADDRESS = '192.168.11.200'
-USER = 'yuwaga3220'
-PASS = 'Nagaisawapro1'
-# ==================================
+from pure_pursuit_ugo import ipro_env
 
-# URL設定
-CONTROL_URL = f"http://{IP_ADDRESS}/cgi-bin/directctrl"
-RTSP_URL = f"rtsp://{USER}:{PASS}@{IP_ADDRESS}/MediaInput/stream_1"
 
 class IproDriver(Node):
     def __init__(self):
         super().__init__('ipro_driver')
-        
+
+        ipro_env.load_ipro_dotenv()
+        self.ip = ipro_env.camera_ip()
+        self.user = ipro_env.camera_user()
+        self.pw = ipro_env.camera_password()
+        if not self.user or not self.pw:
+            self.get_logger().error(
+                "i-PRO 認証情報がありません。opera_ws/.env に IPRO_CAMERA_USER / "
+                "IPRO_CAMERA_PASSWORD を設定するか、.env.example を参照してください。"
+            )
+            raise RuntimeError("Missing IPRO_CAMERA_USER or IPRO_CAMERA_PASSWORD")
+
+        self.control_url = f"http://{self.ip}/cgi-bin/directctrl"
+        self.rtsp_url = (
+            f"rtsp://{self.user}:{self.pw}@{self.ip}/MediaInput/stream_1"
+        )
+
         # 1. 映像配信 (Publisher)
         self.publisher_ = self.create_publisher(Image, '/image_raw', 10)
         
@@ -37,7 +46,7 @@ class IproDriver(Node):
 
         # 通信セッション
         self.session = requests.Session()
-        self.session.auth = HTTPDigestAuth(USER, PASS)
+        self.session.auth = HTTPDigestAuth(self.user, self.pw)
 
         # 状態管理用
         self.is_sending = False
@@ -53,7 +62,7 @@ class IproDriver(Node):
         self.rtsp_thread.daemon = True
         self.rtsp_thread.start()
 
-        self.get_logger().info(f'i-PRO Driver Started! User: {USER}')
+        self.get_logger().info(f'i-PRO Driver Started! User: {self.user}')
 
     def cmd_vel_callback(self, msg):
         """
@@ -129,7 +138,7 @@ class IproDriver(Node):
         self.is_sending = True
         try:
             # タイムアウトは短めに
-            self.session.get(CONTROL_URL, params=params, timeout=0.5)
+            self.session.get(self.control_url, params=params, timeout=0.5)
             # self.get_logger().info(f"Sent: {params}") # デバッグ用
         except Exception as e:
             self.get_logger().warn(f"HTTP Failed: {e}")
@@ -138,11 +147,11 @@ class IproDriver(Node):
 
     def rtsp_loop(self):
         """RTSP映像取得ループ"""
-        cap = cv2.VideoCapture(RTSP_URL)
+        cap = cv2.VideoCapture(self.rtsp_url)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if not cap.isOpened():
-            self.get_logger().error(f"Cannot open RTSP stream: {RTSP_URL}")
+            self.get_logger().error(f"Cannot open RTSP stream: {self.rtsp_url}")
             return
 
         while rclpy.ok():

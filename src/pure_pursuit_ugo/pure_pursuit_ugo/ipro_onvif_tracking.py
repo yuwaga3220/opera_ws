@@ -12,6 +12,8 @@ import requests
 from requests.auth import HTTPDigestAuth
 from onvif import ONVIFCamera
 import urllib3
+from pure_pursuit_ugo import ipro_env
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -35,16 +37,23 @@ class IproOnvifTracking(Node):
     def __init__(self):
         super().__init__("ipro_onvif_tracking_hybrid")
 
-        # ====== Camera credentials ======
-        self.declare_parameter("camera_ip", "192.168.11.200")
+        # ====== Camera credentials（.env / 環境変数、または launch で上書き）======
+        ipro_env.load_ipro_dotenv()
+        self.declare_parameter("camera_ip", ipro_env.camera_ip())
         self.declare_parameter("camera_port", "80")
-        self.declare_parameter("camera_user", "yuwaga3220")
-        self.declare_parameter("camera_pass", "Nagaisawapro1")
+        self.declare_parameter("camera_user", ipro_env.camera_user())
+        self.declare_parameter("camera_pass", ipro_env.camera_password())
 
         self.ip = str(self.get_parameter("camera_ip").value)
         self.port = int(self.get_parameter("camera_port").value)
         self.user = str(self.get_parameter("camera_user").value)
         self.pw = str(self.get_parameter("camera_pass").value)
+        if not self.user or not self.pw:
+            self.get_logger().error(
+                ".env に IPRO_CAMERA_USER / IPRO_CAMERA_PASSWORD を設定するか、"
+                "launch で camera_user / camera_pass を渡してください（.env.example 参照）。"
+            )
+            raise RuntimeError("Missing camera_user or camera_pass")
 
         # ====== 建機パラメータ ======
         self.declare_parameter("boom_length", 4.802)

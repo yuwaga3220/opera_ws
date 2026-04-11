@@ -4,23 +4,15 @@ import threading
 import time
 from requests.auth import HTTPDigestAuth
 
-# ==== 設定 (ここだけ書き換えてください) ====
-IP_ADDRESS = '192.168.11.200'
-USER = 'yuwaga3220'
-PASS = 'Nagaisawapro1'
-# ==========================================
-
-# 正解のURLに変更 (directctrl)
-CONTROL_URL = f"http://{IP_ADDRESS}/cgi-bin/directctrl"
-RTSP_URL = f"rtsp://{USER}:{PASS}@{IP_ADDRESS}/MediaInput/stream_1"
+from pure_pursuit_ugo import ipro_env
 
 is_sending = False
 
-def send_command_thread(session, params):
+def send_command_thread(session, control_url, params):
     global is_sending
     try:
         # タイムアウトを少し長めに確保
-        res = session.get(CONTROL_URL, params=params, timeout=1.0)
+        res = session.get(control_url, params=params, timeout=1.0)
         print(f"Sent: {params} | Result: {res.status_code}")
         
         if res.status_code == 403:
@@ -33,12 +25,23 @@ def send_command_thread(session, params):
 
 def main():
     global current_pan, current_tilt, is_sending
-    
-    session = requests.Session()
-    session.auth = HTTPDigestAuth(USER, PASS)
 
-    print(f"Connecting to: {RTSP_URL}")
-    cap = cv2.VideoCapture(RTSP_URL)
+    ipro_env.load_ipro_dotenv()
+    ip = ipro_env.camera_ip()
+    user = ipro_env.camera_user()
+    pw = ipro_env.camera_password()
+    if not user or not pw:
+        print("エラー: .env に IPRO_CAMERA_USER / IPRO_CAMERA_PASSWORD を設定してください（.env.example 参照）。")
+        return
+
+    control_url = f"http://{ip}/cgi-bin/directctrl"
+    rtsp_url = f"rtsp://{user}:{pw}@{ip}/MediaInput/stream_1"
+
+    session = requests.Session()
+    session.auth = HTTPDigestAuth(user, pw)
+
+    print(f"Connecting to: {rtsp_url}")
+    cap = cv2.VideoCapture(rtsp_url)
     
     if not cap.isOpened():
         print("映像取得エラー")
@@ -109,7 +112,9 @@ def main():
         # 送信実行
         if target_params is not None:
             is_sending = True
-            threading.Thread(target=send_command_thread, args=(session, target_params)).start()
+            threading.Thread(
+                target=send_command_thread, args=(session, control_url, target_params)
+            ).start()
 
     cap.release()
     cv2.destroyAllWindows()

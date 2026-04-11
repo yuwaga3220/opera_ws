@@ -33,3 +33,7 @@ Thumbs.db
 # 一時・キャッシュ
 .cache/
 *.log
+
+# 秘密情報（i-PRO 等）
+.env
+.env.local
