@@ -60,7 +60,7 @@ class Cat303crIkController(Node):
         self.target_goal_position = Point()
         self.target_goal_position.x = 2.0
         self.target_goal_position.y = 0.0 
-        self.target_goal_position.z = 1.5
+        self.target_goal_position.z = -0.0
         
         # 真下は -90度 (-pi/2)
         self.target_end_effector_angle = math.pi / 2 
@@ -78,26 +78,45 @@ class Cat303crIkController(Node):
         self.last_joy = msg
 
     def publish_commands(self):
-        # 安全対策: コントローラーの軸不足によるクラッシュ防止
-        if not self.last_joy.axes or len(self.last_joy.axes) < 6:
-            return
-        if not self.last_joy.buttons or len(self.last_joy.buttons) < 8:
+        # Joy未受信時は何もしない
+        if not self.last_joy.axes and not self.last_joy.buttons:
             return
 
         joy_msg = self.last_joy
         dt = self.timer.timer_period_ns / 1e9
         gain = self.base_gain
 
+        def axis(i, default=0.0):
+            return joy_msg.axes[i] if i < len(joy_msg.axes) else default
+
+        def button(i, default=0.0):
+            if i < len(joy_msg.buttons):
+                return float(joy_msg.buttons[i])
+            return default
+
+        def deadzone(v, th=0.2):
+            return v if abs(v) >= th else 0.0
+
         # 1. 座標計算
-        next_x = self.target_goal_position.x + (joy_msg.buttons[3] - joy_msg.buttons[0]) * gain * dt
-        next_y = self.target_goal_position.y + (joy_msg.buttons[2] - joy_msg.buttons[1]) * gain * dt
-        next_z = self.target_goal_position.z + (joy_msg.buttons[6] - joy_msg.buttons[7]) * gain * dt
+        # ボタン優先: ボタン入力がある間は軸入力を混ぜない（真上操作の横流れ防止）
+        bx = button(3) - button(0)
+        by = button(2) - button(1)
+        bz = button(6) - button(7)
+        ax = deadzone(axis(1))
+        ay = deadzone(axis(0))
+        az = deadzone(axis(3))
+        dx = bx if bx != 0.0 else ax
+        dy = by if by != 0.0 else ay
+        dz = bz if bz != 0.0 else az
+
+        next_x = self.target_goal_position.x + dx * gain * dt
+        next_y = self.target_goal_position.y + dy * gain * dt
+        next_z = self.target_goal_position.z + dz * gain * dt
         
         angle_gain = math.radians(60.0)
         next_angle = self.target_end_effector_angle
-        # 右スティック(Axes[4])があれば使用
-        if len(joy_msg.axes) > 4:
-            next_angle += joy_msg.axes[4] * angle_gain * dt
+        # 右スティック(Axes[4])で先端姿勢角を更新
+        next_angle += axis(4) * angle_gain * dt
 
         # 2. IK計算
         if self.try_solve_ik(next_x, next_y, next_z, next_angle):
@@ -107,13 +126,20 @@ class Cat303crIkController(Node):
             self.target_end_effector_angle = next_angle
 
         # 3. その他操作 (トリガー操作など)
-        val_l2 = joy_msg.axes[2]
-        val_r2 = joy_msg.axes[5]
+        val_l2 = axis(2, 1.0)
+        val_r2 = axis(5, 1.0)
         # L2/R2は通常 -1.0(押下) ~ 1.0(解放) なので、押した分だけ動くように補正
         self.joint_positions[5] += (-(val_l2 - 1) + (val_r2 - 1)) * gain * dt 
         
-        self.joint_positions[6] += (joy_msg.buttons[4] - joy_msg.buttons[5]) * gain * dt        
+        self.joint_positions[6] += (button(4) - button(5)) * gain * dt        
         self.joint_positions[7] = -self.joint_positions[6]                                      
+
+        # 4. 全関節をリミット内にクランプ
+        for i in range(len(self.joint_positions)):
+            self.joint_positions[i] = max(
+                self.joint_limits_lower[i],
+                min(self.joint_limits_upper[i], self.joint_positions[i])
+            )
 
         # パブリッシュ
         joint_state_msg = JointState(name=self.joint_names, position=self.joint_positions)
