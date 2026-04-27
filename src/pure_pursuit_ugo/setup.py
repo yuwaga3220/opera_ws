@@ -82,6 +82,7 @@ setup(
             'IproOnvifTrackingNode = pure_pursuit_ugo.ipro_onvif_tracking:main', # Unity -> Camera
             'IproOnvifTracking2Node = pure_pursuit_ugo.ipro_onvif_tracking2:main', # IMU*2 -> Camera
             'crosshair_node = pure_pursuit_ugo.crosshair_node:main',
+            'mock_joint_states_pub = pure_pursuit_ugo.mock_joint_states_pub:main',
             ],
     },
 )
